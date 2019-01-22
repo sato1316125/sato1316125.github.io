@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>WEBプログラミングⅡ</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <style>
+        body {
+            color: #aaa;
+            font-family: Monospace;
+            font-size: 13px;
+            text-align: center;
+            font-weight: bold;
+
+            background-color: #444;
+            margin: 0px;
+            overflow: hidden;
+        }
+
+        #info {
+            color: #ccc;
+            position: absolute;
+            top: 0px;
+            width: 100%;
+            padding: 0px;
+        }
+
+        a {
+            color: red;
+        }
+
+        #blocker {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        #instructions {
+            width: 100%;
+            height: 100%;
+            display: -webkit-box;
+            display: -moz-box;
+            display: box;
+            -webkit-box-orient: horizontal;
+            -moz-box-orient: horizontal;
+            box-orient: horizontal;
+            -webkit-box-pack: center;
+            -moz-box-pack: center;
+            box-pack: center;
+            -webkit-box-align: center;
+            -moz-box-align: center;
+            box-align: center;
+            color: #ffffff;
+            font-size: 30px;
+            text-align: center;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="bgm_b">
+        
+      <iframe  src ="bgm/1-second-of-silence.mp3" allow="autoplay" id="audio" style="display:none"></iframe>
+        <!--クローム自動再生できない 参考http://webty.jp/staffblog/production/post-907/-->
+        
+      <audio id="bgm" loop="loop" autoplay="autoplay"> 
+        <source src ="bgm/c10.mp3">
+        <source src ="bgm/c10.ogg">
+        <source src ="bgm/c10.mav">
+        <!--フリーBGM素材 H/MIX GALLERYURL	http://www.hmix.net/-->
+      </audio>
+      
+ 
+      <audio id="se" preload="metadata"> 
+        <source src ="bgm/water-bukubuku3.mp3">
+      </audio>
+
+     </div>
+
+    <div id="blocker">
+
+        <div id="instructions">
+            <span style="font-size:40px">クリックでスタート</span>
+            <br /> 
+            <br /><img src="img05/siro.png" width="800"></img>
+        </div>
+
+    </div>
+    <div id="container"></div>
+
+
+    <div>
+        <div>あなたのID: <span id="myid"></span></div>
+        <div>ルームID: <span id="room"></span></div>
+    </div>
+
+
+    <!-- 以下のライブラリの配置はそのままで構わない -->
+    <script src="three.js/three.js"></script>
+    <!--<script src="three.js/three.min.js"></script>-->
+
+    <!--<script src="three.js/TrackballControls.js"></script>-->
+    <script src="three.js/PointerLockControls.js"></script>
+
+    <script src="three.js/GLTFLoader.js"></script>
+    <script src="three.js/WebGL.js"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.1.1/socket.io.js"></script>
+    <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+
+
+    <script>
+        // Three.js revision 85 is used.
+
+        /* global THREE */
+
+        (function() {
+            "use strict";
+
+            let container;
+            let camera, controls, light, scene, renderer;
+            let tama2;
+            let awa = [];
+            let theta;
+            let mixer = null;
+            let mixer_iwa = null;
+            let gltf = null;
+            let gltf_iwa = null;
+            let clock = new THREE.Clock();
+            let clock_iwa = new THREE.Clock();
+            let box = new THREE.Group();
+            let iwa = new THREE.Group();
+
+            let room = "s1316125";
+            let socket = io.connect('https://qa.fujimura.com');
+            let myid;
+            let speedX = 0;
+            let speedY = 0;
+            let posX = 0;
+            let posY = 0;
+            let posZ = 0;
+            let state = 0;
+
+            //------------------------------------------------------スマホセンサ
+            document.querySelector("#room").innerHTML = room;
+
+            socket.on('mylogin', function(data) {
+                myid = data;
+                socket.emit('join', room); // 受信room IDを指定
+                document.querySelector("#myid").innerHTML = myid;
+                console.log("あなたのID: ", myid);
+            });
+
+
+            socket.on('sensor', function(data) {
+                speedX = 0.1 * parseFloat(data.g); //速度をとる
+                speedY = 0.1 * parseFloat(data.b);
+
+            });
+
+            var vid = document.getElementById("bgm");//bgm音量
+            vid.volume = 0.2;
+
+
+            init();
+            animate();
+
+
+            function init() {
+
+                // (1) シーンの作成 （変更しない）
+                scene = new THREE.Scene(); //レンダリング対象
+                scene.fog = new THREE.FogExp2(0x00246D, 0.0003); //backgroundぼかし
+
+                // (2) カメラの作成 （変更しない） ６０＝視野 １から１００００までレンダリング
+                camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 10000);
+                camera.position.x = 50;
+                camera.position.y = 210;
+                camera.position.z = 1500;
+                camera.lookAt(new THREE.Vector3(0, 0, 0));
+
+
+                // カメラをトラックボールで動かす （変更しない）
+                controls = new THREE.PointerLockControls(camera);
+                //controls = new THREE.TrackballControls(camera);
+                controls.addEventListener('change', render);
+
+                // (4) ライティング平行光線＋環境光（変更しない）
+                light = new THREE.DirectionalLight(0xffffff, 0.8); //平行光線 範囲が広いときに
+                light.position.set(0, 100, 150); //太陽
+                light.castShadow = true;
+                light.shadow.camera.top = 1024;
+                light.shadow.camera.bottom = -1024;
+                light.shadow.camera.left = -1024;
+                light.shadow.camera.right = 1024;
+                light.shadow.camera.near = 0;
+                light.shadow.camera.far = 1024;
+                scene.add(light);
+
+                light = new THREE.AmbientLight(0xFFFFDA); //環境光
+                scene.add(light);
+
+
+                //ポインターロックコントロール　クリックでスタート画面を消す
+
+                var blocker = document.getElementById('blocker');
+                var instructions = document.getElementById('instructions');
+                instructions.addEventListener('click', function() {
+                    controls.lock();
+                }, false);
+                controls.addEventListener('lock', function() {
+                    instructions.style.display = 'none';
+                    blocker.style.display = 'none';
+                });
+                controls.addEventListener('unlock', function() {
+                    blocker.style.display = 'block';
+                    instructions.style.display = '';
+                });
+
+                scene.add(controls.getObject());
+
+
+
+                // gltf loader-----------------------------------------------------------くじら
+
+                let loader = new THREE.GLTFLoader();
+
+
+                let scale = 2; //大きさ
+                let url = "gltf/char_swim.gltf";
+
+                loader.load(url, function(data) {
+                    gltf = data;
+
+                    gltf.scene.traverse(function(child) {
+                        if ('material' in child) {
+                            child.material.side = THREE.DoubleSide;
+                        }
+                    });
+
+                    var object = gltf.scene;
+                    object.scale.set(scale, scale, scale);
+                    //object.position.y -= 10;
+
+                    let animations = gltf.animations;
+                    if (animations && animations.length) {
+                        mixer = new THREE.AnimationMixer(object);
+                        for (let i = 0; i < animations.length; i++) {
+                            let animation = animations[i];
+                            mixer.clipAction(animation).play();
+                        }
+                    }
+
+                    object.position.x = 320;
+                    object.position.y = 0;
+                    object.position.z = -100;
+                    object.rotation.x = Math.PI / 2;
+
+
+                    box.add(object);
+
+                    scene.add(box);
+
+                });
+
+
+                // gltf loader-----------------------------------------------------------背景
+
+
+                let url_1 = "gltf/iwa.gltf";
+                let iwa = new THREE.Group();
+                // renderer.gammaOutput = true; //明るさ
+
+
+                loader.load(url_1, function(data) {
+                    gltf_iwa = data;
+
+                    gltf_iwa.scene.traverse(function(child) {
+                        if ('material' in child) {
+                            child.material.side = THREE.DoubleSide;
+                        }
+                    });
+
+                    let object = gltf_iwa.scene;
+                    object.scale.set(scale, scale, scale);
+
+                    let animations = gltf_iwa.animations;
+                    if (animations && animations.length) { //lgtf動かす
+                        mixer_iwa = new THREE.AnimationMixer(object);
+                        for (let i = 0; i < animations.length; i++) {
+                            let animation = animations[i];
+                            mixer_iwa.clipAction(animation).play();
+                        }
+                    }
+
+                    object.position.x = 0;
+                    object.position.y = -400;
+
+
+                    iwa.add(object);
+
+                    scene.add(iwa);
+
+                });
+
+
+                //-------------------------------------------------------------------------空間
+
+                // (5)表示する物体の作成
+                var geometry, material;
+
+                // // 球体（上）		
+                geometry = new THREE.SphereGeometry(50, 32, 32); //32角形のポリゴンで作製（半径、x、y）
+                material = new THREE.MeshPhongMaterial({
+                    // map: texture
+                    color: 0x5548FF,
+                });
+
+
+                material.side = THREE.DoubleSide;
+
+                geometry = new THREE.SphereGeometry(4000, 32, 32); //32角形のポリゴンで作製（半径、x、y）
+                tama2 = new THREE.Mesh(geometry, material); //場所
+                tama2.position.x = 0;
+                tama2.position.y = 1000;
+                tama2.position.z = 500;
+                tama2.castShadow = true;
+                scene.add(tama2);
+
+                //--------------------------------------------------------------------泡
+
+                geometry = new THREE.SphereGeometry(5, 10, 10);
+                geometry.scale(1, 1, 1);
+
+                material = new THREE.MeshToonMaterial({
+                    transparent: true,
+                    opacity: 0.6,
+                    // map: THREE.ImageUtils.loadTexture("img05/gr1.jpg")
+                });
+                //let awa = []; //awa = new THREE.Mesh(geometry, material);
+                for (let i = 0; i < 200; i++) {
+                    awa[i] = new THREE.Mesh(geometry, material);
+                    awa[i].position.x = 4000 * Math.random() - 2000;
+                    awa[i].position.y = 1000 * Math.random() - 300;
+                    awa[i].position.z = 2000 * Math.random() - 600;
+                    awa[i].receiveShadow = true;
+                    awa[i].castShadow = true;
+                    scene.add(awa[i]);
+                }
+                
+                //-----------------------------------------------------------------
+
+                // var axisHelper = new THREE.AxisHelper(1000);
+                //scene.add(axisHelper);
+
+                // scene.fog = new THREE.FogExp2( 0xcccccc, 0.001 );
+
+                // (6)レンダリング （変更しない）
+                renderer = new THREE.WebGLRenderer({ antialias: false });
+
+                //影の有効化（レンダラー）
+                renderer.shadowMap.enabled = true;
+
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.setClearColor("#222222", 1);
+
+                container = document.getElementById('container');
+                container.appendChild(renderer.domElement);
+
+                window.addEventListener('resize', onWindowResize, false);
+            }
+
+            // ウインドウサイズを変えたときのアクション（変更しない）
+            function onWindowResize() {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                //controls.handleResize();
+                render();
+            }
+
+
+            //---------------------------------------------------------------音声
+
+
+            let msg = new SpeechSynthesisUtterance();
+            let text = ["ぶくぶく", "すいすい", "わーい", "やっほーい！", "やめて"];
+
+            function speech() {
+
+                msg.text = text[Math.floor(Math.random() * text.length)]; //話す中身
+                msg.volume = 1.0; // 音量 min 0 ~ max 1
+                msg.rate = 1.5; // 速度 min 0 ~ max 10
+                msg.pitch = 2; // 音程 min 0 ~ max 2
+
+                msg.lang = 'ja-JP'; // en-US or ja
+
+                speechSynthesis.speak(msg);
+
+                //         // 終了時の処理
+                //         msg.onend = function(event) {
+                //             console.log('喋った時間：' + event.elapsedTime + 's');
+                //         };
+
+            }
+            //----------------------------------------------------------------泡の音
+            
+            function buku(){
+                let buku = document.getElementById("se");
+                buku.volume = 0.3;
+                buku.play();
+  
+            }
+
+            //----------------------------------------------------------------
+
+
+            // アニメーションの実行（無限ループ）
+            theta = 0;
+
+            function animate() {
+
+
+                theta++; //シータ方向に1度づつ動かす
+
+
+
+                box.rotation.z = -speedX * Math.PI / 180; //回転左右
+                box.rotation.x = -speedY * Math.PI / 180; //回転上下
+
+                box.position.x = posX; //位置を格納
+                box.position.z = posZ;
+                box.position.y = posY;
+
+                // if (speedX <= 1.2) { //左に傾けると左に移動
+
+                posX = posX + speedX; //移動範囲
+                if (posX <= -400) {
+                    posX = -400;
+                    buku();
+                }
+                else if (posX >= 460) {
+                    posX = 460;
+                    buku();
+                }
+
+                if (speedY >= 4.0 && state == 0) { //一回だけ
+                    state = 1;
+                    console.log("ok");
+                    if (state == 1) {
+                        speech();
+                        buku();
+                    }
+                }
+                else if (speedY < 4.0) {
+                    state = 0;
+
+                }
+                //console.log(speedY);
+
+                camera.position.x += (box.position.x - camera.position.x) * 0.1;
+
+                //泡
+                for (let i = 0; i < 200; i++) {
+                    if (awa[i].position.y > 1000) awa[i].position.y = awa[i].position.y - 1000;
+                    awa[i].position.y = awa[i].position.y + 0.5;
+                }
+
+
+                if (mixer) mixer.update(clock.getDelta()); //gltf動かす
+                if (mixer_iwa) mixer_iwa.update(clock_iwa.getDelta());
+
+                requestAnimationFrame(animate);
+
+
+                //controls.update();
+                render();
+            }
+
+            function render() {
+                renderer.render(scene, camera);
+            }
+
+        })();
+    </script>
+</body>
+
+</html>
